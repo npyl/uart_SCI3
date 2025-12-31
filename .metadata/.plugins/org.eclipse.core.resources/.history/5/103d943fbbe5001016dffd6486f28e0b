@@ -1,0 +1,336 @@
+/*----------------------------------------------------------------------------\
+|          Copyright(c) 2024 Jerry Pylarinos.                                 |
+|          This program is protected by copyright and information             |
+|          contained therein is confidential. The program may not be          |
+|          copied and the information may not be used or disclosed            |
+|          except with the written permission of the proprietor(s).           |
+|                                                                             |
+|-----------------------------------------------------------------------------|
+|                                                                             |
+|   Module Name  : fw_uart.c Module File.                                     |
+|                                                                             |
+|   Author       : Jerry Pylarinos                                            |
+|                                                                             |
+|   Date         : 16 …·Ì 2024                                                |
+|                                                                             |
+|-----------------------------------------------------------------------------|
+|                                                                             |
+|   <Module Description>                                                      |
+|                                                                             |
+\----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------\
+|   Compiler Controls                                                         |
+\----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------\
+|   Header Files                                                              |
+\----------------------------------------------------------------------------*/
+
+#include <string.h>
+
+#include "HL_sci.h"
+#include "HL_sys_vim.h"
+#include "math.h"
+
+#include "fw_uart.h"
+
+/*----------------------------------------------------------------------------\
+|   Public Constant Definitions                                               |
+\----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------\
+|   Public Data Declarations                                                  |
+\----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------\
+|   Private Type Definitions                                                  |
+\----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------\
+|   Private Constant Definitions                                              |
+\----------------------------------------------------------------------------*/
+
+static const S_UART_CONFIG uart_config_defs[ eUART_MAX ] =
+{
+     {
+        .id = eUART_0,
+        .label = "SCI1",
+        .params =
+        {
+            .baud = eBAUD_115200,
+            .stop = eSTOP_ONE,
+            .parity_en = FALSE,
+            .parity_even = FALSE,
+            .loopback = TRUE,
+        },
+        .enabled = FALSE,
+     },
+     {
+        .id = eUART_1,
+        .label = "SCI2",
+        .params =
+        {
+             .baud = eBAUD_115200,
+             .stop = eSTOP_ONE,
+             .parity_en = FALSE,
+             .parity_even = FALSE,
+             .loopback = FALSE,
+        },
+        .enabled = FALSE,
+     },
+     {
+        .id = eUART_2,
+        .label = "SCI3",
+        .params =
+        {
+             .baud = eBAUD_115200,
+             .stop = eSTOP_ONE,
+             .parity_en = FALSE,
+             .parity_even = FALSE,
+             .loopback = FALSE,
+        },
+        .enabled = TRUE,
+     },
+     {
+        .id = eUART_3,
+        .label = "SCI4",
+        .params =
+        {
+             .baud = eBAUD_115200,
+             .stop = eSTOP_ONE,
+             .parity_en = FALSE,
+             .parity_even = FALSE,
+             .loopback = FALSE,
+        },
+        .enabled = FALSE,
+     },
+};
+
+/*----------------------------------------------------------------------------\
+|   Private Data Declarations                                                 |
+\----------------------------------------------------------------------------*/
+
+static uint8 sci_rx_buffer[ eUART_MAX ][ sizeof( S_UART_INFO ) ];
+static uint8 sci_rx_buffer_idx[ eUART_MAX ];
+
+/** @struct g_sciTransfer
+*   @brief Interrupt mode globals
+*
+*/
+static volatile struct g_sciTransfer
+{
+    uint32   mode;         /* Used to check for TX interrupt Enable */
+    uint32   tx_length;    /* Transmit data length in number of Bytes */
+    uint32   rx_length;    /* Receive data length in number of Bytes */
+    uint8    * tx_data;    /* Transmit data pointer */
+    uint8    * rx_data;    /* Receive data pointer */
+} g_sciTransfer_t[ eUART_MAX ];
+
+/*----------------------------------------------------------------------------\
+|   Private Function Declarations                                             |
+\----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------\
+|   Public Function Implementations                                           |
+\----------------------------------------------------------------------------*/
+
+void uart_init( void )
+{
+    int i;
+    sciBASE_t * p_sci;
+    uint32_t timeout;
+
+    const S_UART_CONFIG * const p_cfg = uartGetConfig();
+
+    for ( i = 0; i < eUART_MAX; i++ )
+    {
+
+        p_sci = UART( i );
+        if ( p_cfg[ i ].enabled == TRUE )
+        {
+            /* Bring SCI out of reset */
+            p_sci->GCR0 = 0U;
+            p_sci->GCR0 = 1U;
+
+            /* Disable all interrupts */
+            p_sci->CLEARINT = 0xFFFFFFFFU;
+            p_sci->CLEARINTLVL = 0xFFFFFFFFU;
+
+            /* Global control 1 register */
+            p_sci->GCR1 = ( uint32 ) ( ( uint32 ) 1U << 25U )  /* Enable transmit interrupt */
+                        | ( uint32 ) ( ( uint32 ) 1U << 24U )  /* Enable receive interrupt */
+                        | ( uint32 ) ( ( uint32 ) 1U << 5U )   /* Internal clock ( Device has no clock pin ) */
+                        | ( uint32 ) ( ( uint32 ) 1U << 1U );  /* Asynchronous timing mode */
+
+            p_sci->GCR1 |= ( uint32 ) ( ( uint32 ) p_cfg[ i ].params.parity_en << 2U );
+            p_sci->GCR1 |= ( uint32 ) ( ( uint32 ) p_cfg[ i ].params.parity_even << 3U );
+            p_sci->GCR1 |= ( uint32 ) ( ( uint32 ) p_cfg[ i ].params.stop << 4U );
+
+            /* Baud rate */
+            p_sci->BRS = p_cfg[ i ].params.baud;
+
+            /* Transmission length */
+            p_sci->FORMAT = 7U;
+
+            /* Set SCI pins functional mode */
+            p_sci->PIO0 = ( uint32 ) ( ( uint32 ) 1U << 2U )   /* tx pin */
+                        | ( uint32 ) ( ( uint32 ) 1U << 1U );  /* rx pin */
+
+            /* Set SCI pins default output value */
+            p_sci->PIO3 = ( uint32 ) ( ( uint32 ) 0U << 2U )   /* tx pin */
+                        | ( uint32 ) ( ( uint32 ) 0U << 1U );  /* rx pin */
+
+            /* Set SCI pins output direction */
+            p_sci->PIO1 = ( uint32 ) ( ( uint32 ) 0U << 2U )   /* tx pin */
+                        | ( uint32 ) ( ( uint32 ) 0U << 1U );  /* rx pin */
+
+            /* Set SCI pins open drain enable */
+            p_sci->PIO6 = ( uint32 ) ( ( uint32 ) 0U << 2U )   /* tx pin */
+                        | ( uint32 ) ( ( uint32 ) 0U << 1U );  /* rx pin */
+
+            /* Set SCI pins pullup/pulldown enable */
+            p_sci->PIO7 = ( uint32 ) ( ( uint32 ) 0U << 2U )   /* tx pin */
+                        | ( uint32 ) ( ( uint32) 0U << 1U );   /* rx pin */
+
+            /* Set SCI pins pullup / pulldown select */
+            p_sci->PIO8 = ( uint32 ) ( ( uint32 ) 1U << 2U )   /* tx pin */
+                        | ( uint32 ) ( ( uint32 ) 1U << 1U );  /* rx pin */
+
+            /* Set interrupt level */
+            p_sci->SETINTLVL = ( uint32 ) ( ( uint32 ) 0U << 26U )     /* Framing error */
+                             | ( uint32 ) ( ( uint32 ) 0U << 25U )     /* Overrun error */
+                             | ( uint32 ) ( ( uint32 ) 0U << 24U )     /* Parity error */
+                             | ( uint32 ) ( ( uint32 ) 0U << 9U )      /* Receive */
+                             | ( uint32 ) ( ( uint32 ) 0U << 8U )      /* Transmit */
+                             | ( uint32 ) ( ( uint32 ) 0U << 1U )      /* Wakeup */
+                             | ( uint32 ) ( ( uint32 ) 0U << 0U );     /* Break detect */
+
+            /* Set interrupt enable */
+            p_sci->SETINT = ( uint32 ) ( ( uint32 ) 0U << 26U )        /* Framing error */
+                          | ( uint32 ) ( ( uint32 ) 0U << 25U )        /* Overrun error */
+                          | ( uint32 ) ( ( uint32 ) 0U << 24U )        /* Parity error */
+                          | ( uint32 ) ( ( uint32 ) 1U << 9U )         /* Receive */
+                          | ( uint32 ) ( ( uint32 ) 0U << 1U )         /* Wakeup */
+                          | ( uint32 ) ( ( uint32 ) 0U << 0U );        /* Break detect */
+
+            /* Initialize global transfer variables */
+            g_sciTransfer_t[ p_cfg[ i ].id ].mode = ( uint32 ) 1U << 8U;
+            g_sciTransfer_t[ p_cfg[ i ].id ].tx_length = 0U;
+            g_sciTransfer_t[ p_cfg[ i ].id ].rx_length = 0U;
+
+            p_cfg[ i ].params.loopback == TRUE ? ( { sciEnableLoopback( p_sci, Digital_Lbk ); } ) : ( { asm ( " nop" ); } );
+
+            /* Clear Rx buffer and index */
+            memset( &sci_rx_buffer[ i ], 0, sizeof( S_UART_INFO ) );
+            sci_rx_buffer_idx[ i ] = 0;
+
+            /* Finally start SCI */
+            p_sci->GCR1 |= 0x80U;
+
+            /* Enable notifications for this uart */
+            // sciEnableNotification( p_sci, SCI_RX_INT );
+
+            /* Wait till SCI IDLE */
+            timeout = SCI_TIMEOUT;
+            while( ( ( p_sci->FLR & SCI_IDLE ) == SCI_IDLE ) && ( --timeout > 0 ) );
+
+            /* Must setup g_sciTransfer_t .rx_length to 1 in order to
+             * trigger SCI Notification when 1st byte arrives
+             */
+            // uint8 ch;
+            // sciReceive( p_sci, 1, ( uint8 * ) &sci_rx_buffer[0] );
+        }
+    }
+}
+
+const S_UART_CONFIG * const uartGetConfig( void )
+{
+    /* Return the address of the UART configuration data */
+    return uart_config_defs;
+}
+
+void sciNotification(sciBASE_t *sci, uint32 flags)
+{
+    uint8 ch;
+    S_UART_INFO sci_info;
+    /* Determine which SCI RX buffer array index to use:
+     *   eUART_0 .. eUART_3 corresponding to sciREG1 .. sciREG3
+     */
+    E_UART_ID sci_idx = UART_IDX( sci );
+    static bool collecting_data = false;
+
+    switch ( sci_idx )
+    {
+        case eUART_2:
+            if ( flags & SCI_RX_INT )   /* Check for received char */
+            {
+                /* Get received character and prepare for next */
+                sciReceive( sci, 1, ( uint8 * ) &ch );
+
+                if ( ch == STX )
+                {
+                    /* Start of new packet - reset buffer even if we were collecting */
+                    collecting_data = true;
+                    sci_rx_buffer_idx[ sci_idx ] = 0;
+                    sci_rx_buffer[ sci_idx ][ sci_rx_buffer_idx[ sci_idx ]++ ] = ch;
+                }
+                else if ( ch == ETX && collecting_data )
+                {
+                    /* End of packet */
+                    sci_rx_buffer[ sci_idx ][ sci_rx_buffer_idx[ sci_idx ]++ ] = ETX;
+                    sci_rx_buffer[ sci_idx ][ sci_rx_buffer_idx[ sci_idx ] ] = '\0';
+
+                    /* Populate sci_info structure */
+                    sci_info.id = sci_idx;
+                    sci_info.sci = sci;
+                    sci_info.payload_length = sci_rx_buffer_idx[ sci_idx ];
+                    memcpy( &sci_info.payload, &sci_rx_buffer[ sci_idx ][ 0 ], sci_info.payload_length );
+
+                    /*
+                     * RECEIVED COMPLETE PACKET
+                     */
+
+                    /* Reset for next packet */
+                    collecting_data = false;
+                    sci_rx_buffer_idx[ sci_idx ] = 0;
+                }
+                else if ( collecting_data )
+                {
+                    /* Store intermediate bytes if we're collecting */
+                    if ( sci_rx_buffer_idx[ sci_idx ] < sizeof( sci_info ) - 1 )
+                    {
+                       sci_rx_buffer[ sci_idx ][ sci_rx_buffer_idx[ sci_idx ]++ ] = ch;
+                    }
+                    else
+                    {
+                       /* Buffer overflow - reset */
+                       collecting_data = false;
+                       sci_rx_buffer_idx[ sci_idx ] = 0;
+                    }
+                }
+            }
+            if ( flags & SCI_TX_INT )
+            {
+                // TODO Switch to receive RS485
+                __asm ( " nop" );
+            }
+            break;
+        case eUART_0:
+            break;
+        case eUART_1:
+            break;
+        case eUART_3:
+            break;
+        default:
+            break;
+    }
+}
+
+/*----------------------------------------------------------------------------\
+|   Private Function Implementations                                          |
+\----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------\
+|   End of fw_uart.c module                                                   |
+\----------------------------------------------------------------------------*/

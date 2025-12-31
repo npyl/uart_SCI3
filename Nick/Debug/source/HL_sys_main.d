@@ -17,6 +17,12 @@ source/HL_sys_main.obj: C:/ti/ccs1281/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/i
 source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_sci.h
 source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_sci.h
 source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_gio.h
+source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_system.h
+source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_system.h
+source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_flash.h
+source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_l2ramw.h
+source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_ccmr5.h
+source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/include/HL_sys_core.h
 source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/components/fw_uart/fw_uart.h
 source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/components/fw_uart/fw_types.h
 source/HL_sys_main.obj: C:/Development/Hercules/ws_Nick/Nick/components/fw_uart/fw_globals.h
@@ -55,6 +61,18 @@ C:/Development/Hercules/ws_Nick/Nick/include/HL_sci.h:
 C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_sci.h:
 
 C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_gio.h:
+
+C:/Development/Hercules/ws_Nick/Nick/include/HL_system.h:
+
+C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_system.h:
+
+C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_flash.h:
+
+C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_l2ramw.h:
+
+C:/Development/Hercules/ws_Nick/Nick/include/HL_reg_ccmr5.h:
+
+C:/Development/Hercules/ws_Nick/Nick/include/HL_sys_core.h:
 
 C:/Development/Hercules/ws_Nick/Nick/components/fw_uart/fw_uart.h:
 

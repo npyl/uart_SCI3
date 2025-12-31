@@ -1,0 +1,3 @@
+eclipse.preferences.version=1
+symbolAutoCompleteHistory<seperator>org.eclipse.cdt.debug.ui.memory.memorybrowser.MemoryBrowser<seperator>Texas\ Instruments\ XDS110\ USB\ Debug\ Probe\\CortexR5=0x080015D7,*(g_sciTransfer_t[sci_idx].rx_data - 1),g_sciTransfer_t[sci_idx].rx_data[0],*g_sciTransfer_t[sci_idx].rx_data
+useAnnotationsPrefPage=true
