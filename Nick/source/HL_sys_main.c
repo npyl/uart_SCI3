@@ -52,6 +52,7 @@
 /* USER CODE BEGIN (1) */
 
 #include "HL_sci.h"
+#include "HL_system.h"
 
 #include <stdbool.h>
 
@@ -77,6 +78,8 @@ int main(void)
 
     uint8 RxData;
 
+    _enable_interrupt_();
+
     /* Initialise UART interfaces */
     uart_init();
 
@@ -84,13 +87,18 @@ int main(void)
 
     while ( 1 )
     {
+        asm ( " nop" );
+#if 0
         if (sciIsRxReady(sciREG3)) {
             RxData = sciReceiveByte(sciREG3);
             sciSendByte(sciREG3, RxData);
         }
+#endif
     }
 
 /* USER CODE END */
+
+    return 0;
 }
 
 

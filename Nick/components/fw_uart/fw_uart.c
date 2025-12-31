@@ -210,7 +210,7 @@ void uart_init( void )
             p_sci->SETINT = ( uint32 ) ( ( uint32 ) 0U << 26U )        /* Framing error */
                           | ( uint32 ) ( ( uint32 ) 0U << 25U )        /* Overrun error */
                           | ( uint32 ) ( ( uint32 ) 0U << 24U )        /* Parity error */
-                          | ( uint32 ) ( ( uint32 ) 1U << 9U )         /* Receive */
+                          | ( uint32 ) ( ( uint32 ) 0U << 9U )         /* Receive */
                           | ( uint32 ) ( ( uint32 ) 0U << 1U )         /* Wakeup */
                           | ( uint32 ) ( ( uint32 ) 0U << 0U );        /* Break detect */
 
@@ -228,20 +228,21 @@ void uart_init( void )
             /* Finally start SCI */
             p_sci->GCR1 |= 0x80U;
 
-            /* Enable notifications for this uart */
-            // sciEnableNotification( p_sci, SCI_RX_INT );
-
             /* Wait till SCI IDLE */
             timeout = SCI_TIMEOUT;
             while( ( ( p_sci->FLR & SCI_IDLE ) == SCI_IDLE ) && ( --timeout > 0 ) );
 
-            /* Must setup g_sciTransfer_t .rx_length to 1 in order to
-             * trigger SCI Notification when 1st byte arrives
+            /* Enable notifications for this uart */
+            sciEnableNotification( p_sci, SCI_RX_INT );
+
+            /* Must setup:
+             *   1) g_sciTransfer_t.rx_length to 1 in order to
+             *     trigger SCI Notification when 1st byte arrives
+             *   2) g_sciTransfer_t.rx_data to point to our receiving buffer
+             *     Note: See Interrupt Handler for logic
              */
-#if 1
-            sciReceive( p_sci, 1, ( uint8 * ) &sci_rx_buffer[0] );
-#endif
-        }
+            sciReceive( p_sci, 1, sci_rx_buffer[ i ] );
+       }
     }
 }
 
@@ -266,20 +267,17 @@ void sciNotification(sciBASE_t *sci, uint32 flags)
         case eUART_2:
             if ( flags & SCI_RX_INT )   /* Check for received char */
             {
-                /* Get received character and prepare for next */
-                sciReceive( sci, 1, ( uint8 * ) &ch );
-
+                ch = sci_rx_buffer[sci_idx][sci_rx_buffer_idx[ sci_idx ]];
                 if ( ch == STX )
                 {
-                    /* Start of new packet - reset buffer even if we were collecting */
+                    /* Start of new packet */
                     collecting_data = true;
-                    sci_rx_buffer_idx[ sci_idx ] = 0;
-                    sci_rx_buffer[ sci_idx ][ sci_rx_buffer_idx[ sci_idx ]++ ] = ch;
+                    sci_rx_buffer_idx[ sci_idx ]++;
                 }
                 else if ( ch == ETX && collecting_data )
                 {
                     /* End of packet */
-                    sci_rx_buffer[ sci_idx ][ sci_rx_buffer_idx[ sci_idx ]++ ] = ETX;
+                    sci_rx_buffer_idx[ sci_idx ]++;
                     sci_rx_buffer[ sci_idx ][ sci_rx_buffer_idx[ sci_idx ] ] = '\0';
 
                     /* Populate sci_info structure */
@@ -287,10 +285,6 @@ void sciNotification(sciBASE_t *sci, uint32 flags)
                     sci_info.sci = sci;
                     sci_info.payload_length = sci_rx_buffer_idx[ sci_idx ];
                     memcpy( &sci_info.payload, &sci_rx_buffer[ sci_idx ][ 0 ], sci_info.payload_length );
-
-                    /*
-                     * RECEIVED COMPLETE PACKET
-                     */
 
                     /* Reset for next packet */
                     collecting_data = false;
@@ -301,7 +295,7 @@ void sciNotification(sciBASE_t *sci, uint32 flags)
                     /* Store intermediate bytes if we're collecting */
                     if ( sci_rx_buffer_idx[ sci_idx ] < sizeof( sci_info ) - 1 )
                     {
-                       sci_rx_buffer[ sci_idx ][ sci_rx_buffer_idx[ sci_idx ]++ ] = ch;
+                       sci_rx_buffer_idx[ sci_idx ]++;
                     }
                     else
                     {
@@ -310,6 +304,8 @@ void sciNotification(sciBASE_t *sci, uint32 flags)
                        sci_rx_buffer_idx[ sci_idx ] = 0;
                     }
                 }
+                /* Prepare for next byte at correct buffer index */
+                sciReceive( sci, 1, ( uint8 * ) &sci_rx_buffer[sci_idx][sci_rx_buffer_idx[ sci_idx ]] );
             }
             if ( flags & SCI_TX_INT )
             {
@@ -922,82 +918,6 @@ void sci3HighLevelInterrupt(void)
          break;
     }
 /* USER CODE BEGIN (38) */
-/* USER CODE END */
-}
-
-/* SourceId : SCI_SourceId_027 */
-/* DesignId : SCI_DesignId_017 */
-/* Requirements : HL_CONQ_SCI_SR20, HL_CONQ_SCI_SR21 */
-/** @fn void sciLowLevelInterrupt(void)
-*   @brief Level 1 Interrupt for SCI3
-*/
-#pragma CODE_STATE(sciLowLevelInterrupt, 32)
-#pragma INTERRUPT(sciLowLevelInterrupt, IRQ)
-void sciLowLevelInterrupt(void)
-{
-    uint32 vec = sciREG3->INTVECT1;
-    uint8 byte;
-/* USER CODE BEGIN (39) */
-/* USER CODE END */
-
-    switch (vec)
-    {
-    case 1U:
-        sciNotification(sciREG3, (uint32)SCI_WAKE_INT);
-        break;
-    case 3U:
-        sciNotification(sciREG3, (uint32)SCI_PE_INT);
-        break;
-    case 6U:
-        sciNotification(sciREG3, (uint32)SCI_FE_INT);
-        break;
-    case 7U:
-        sciNotification(sciREG3, (uint32)SCI_BREAK_INT);
-        break;
-    case 9U:
-        sciNotification(sciREG3, (uint32)SCI_OE_INT);
-        break;
-
-    case 11U:
-        /* receive */
-        byte = (uint8)(sciREG3->RD & 0x000000FFU);
-
-            if (g_sciTransfer_t[2U].rx_length > 0U)
-            {
-                *g_sciTransfer_t[2U].rx_data = byte;
-                g_sciTransfer_t[2U].rx_data++;
-                g_sciTransfer_t[2U].rx_length--;
-                if (g_sciTransfer_t[2U].rx_length == 0U)
-                {
-                    sciNotification(sciREG3, (uint32)SCI_RX_INT);
-                }
-            }
-
-        break;
-
-    case 12U:
-        /* transmit */
-        /*SAFETYMCUSW 30 S MR:12.2,12.3 <APPROVED> "Used for data count in Transmit/Receive polling and Interrupt mode" */
-        --g_sciTransfer_t[2U].tx_length;
-        if (g_sciTransfer_t[2U].tx_length > 0U)
-        {
-            uint8 txdata = *g_sciTransfer_t[2U].tx_data;
-            sciREG3->TD = (uint32)txdata;
-            g_sciTransfer_t[2U].tx_data++;
-        }
-        else
-        {
-            sciREG3->CLEARINT = (uint32)SCI_TX_INT;
-            sciNotification(sciREG3, (uint32)SCI_TX_INT);
-        }
-        break;
-
-    default:
-        /* phantom interrupt, clear flags and return */
-        sciREG3->FLR = sciREG3->SETINTLVL & 0x07000303U;
-         break;
-    }
-/* USER CODE BEGIN (40) */
 /* USER CODE END */
 }
 

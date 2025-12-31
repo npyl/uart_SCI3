@@ -108,6 +108,7 @@ static void test_uart( void )
     tx_info.payload[19] = '2';  //
     tx_info.payload[20] = 0x03; // ETX
     tx_info.payload[21] = '\0'; // NULL terminated
+    tx_info.payload[22] = '\n';
 
     sciSend( tx_info.sci, sizeof( tx_info ), ( uint8 * ) &tx_info );
 }
